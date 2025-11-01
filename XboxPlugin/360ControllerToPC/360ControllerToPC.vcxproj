@@ -194,14 +194,14 @@
       <PrecompiledHeaderOutputFile>$(OutDir)$(ProjectName).pch</PrecompiledHeaderOutputFile>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <PreprocessorDefinitions>NDEBUG;_XBOX;_LIB</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>C:\Users\WindowsLP\Documents\Xbox360Coding\hiddriverWS\hiddriverWS\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\WindowsLP\Documents\GitHub\x360-remote-to-pc\XboxPlugin\360ControllerToPC\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <AdditionalOptions>/DLL /ENTRY:"_DllMainCRTStartup" /ALIGN:128,4096 %(AdditionalOptions)</AdditionalOptions>
-      <AdditionalLibraryDirectories>C:\Users\WindowsLP\Documents\Xbox360Coding\hiddriverWS\hiddriverWS\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>C:\Users\WindowsLP\Documents\GitHub\x360-remote-to-pc\XboxPlugin\360ControllerToPC\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>xkelib.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <ImageXex>

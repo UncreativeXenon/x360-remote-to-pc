@@ -32,10 +32,12 @@ PLDR_DATA_TABLE_ENTRY pDataTable = nullptr;
 
 char pluginPath[MAX_PATH];
 
-char ip[128] = {0};
-int port = 0;
+char ip[64] = "127.0.0.1";
+int port = 4000;
+bool disableConsoleInput = true;
+int maxControllers = 4;
 
-bool gotIP = false;
+bool gotIp = false;
 
 #pragma pack(push, 1)
 struct X360Packet {
@@ -77,14 +79,14 @@ bool sendPing()
     return true;
 }
 
-BOOL ReadIPAddress()
+bool ReadConfig()
 {
-	if (gotIP) return true;
+    if (gotIp) return true;
 
     FILE* file = fopen(pluginPath, "r");
     if (!file)
     {
-        OutputDebugStringA("Failed to open file.\n");
+        OutputDebugStringA("Failed to open config file.\n");
         return false;
     }
 
@@ -94,24 +96,42 @@ BOOL ReadIPAddress()
     {
         buffer[strcspn(buffer, "\r\n")] = 0;
 
-        if (strlen(buffer) > 0)
+        if (strlen(buffer) == 0 || buffer[0] == '#')
+            continue;
+
+        char lower[256];
+        strcpy(lower, buffer);
+        for (char* p = lower; *p; ++p)
+            *p = (char)tolower(*p);
+
+        if (strncmp(lower, "ip=", 3) == 0)
         {
-            char* colon = strchr(buffer, ':');
-            if (colon)
-            {
-                *colon = 0;
-                strcpy(ip, buffer);
-                port = atoi(colon + 1);
-            }
-            break;
+            strcpy(ip, buffer + 3);
+        }
+        else if (strncmp(lower, "port=", 5) == 0)
+        {
+            port = atoi(buffer + 5);
+        }
+        else if (strncmp(lower, "disableconsoleinput=", 20) == 0)
+        {
+            const char* val = buffer + 20;
+            disableConsoleInput = (_stricmp(val, "true") == 0 || strcmp(val, "1") == 0);
+        }
+        else if (strncmp(lower, "maxcontrollers=", 15) == 0)
+        {
+            maxControllers = atoi(buffer + 15);
         }
     }
 
     fclose(file);
+    gotIp = true;
 
-	gotIP = true;
+    char debugMsg[256];
+    sprintf(debugMsg, "Config loaded:\nIP=%s\nPort=%d\nDisableConsoleInput=%d\nMaxControllers=%d\n",
+        ip, port, disableConsoleInput, maxControllers);
+    OutputDebugStringA(debugMsg);
 
-	return true;
+    return TRUE;
 }
 
 DWORD* XampInputRoutedToSysapp = nullptr;
@@ -131,20 +151,25 @@ DWORD XamInputGetStateHook(DWORD userIndex, DWORD flags, XINPUT_STATE* input_sta
 	packet.sThumbRX = gamepad.sThumbRX;
 	packet.sThumbRY = gamepad.sThumbRY;
 
-	if (g_sock != INVALID_SOCKET) {
-		NetDll_send(static_cast<XNCALLER_TYPE>(XNCALLER_SYSAPP), g_sock, reinterpret_cast<const char*>(&packet), sizeof(packet), 0);
+	if (g_sock != INVALID_SOCKET && userIndex < static_cast<unsigned int>(maxControllers)) {
+		if (userIndex < static_cast<unsigned int>(maxControllers)) {
+			NetDll_send(static_cast<XNCALLER_TYPE>(XNCALLER_SYSAPP), g_sock, reinterpret_cast<const char*>(&packet), sizeof(packet), 0);
+		}
 
-		input_state->Gamepad.wButtons = 0;
-		input_state->Gamepad.sThumbRX = 0;
-		input_state->Gamepad.sThumbRY = 0;
-		input_state->Gamepad.sThumbLX = 0;
-		input_state->Gamepad.sThumbLY = 0;
+		if (disableConsoleInput) {
+			input_state->Gamepad.wButtons = 0;
+			input_state->Gamepad.sThumbRX = 0;
+			input_state->Gamepad.sThumbRY = 0;
+			input_state->Gamepad.sThumbLX = 0;
+			input_state->Gamepad.sThumbLY = 0;
+			input_state->Gamepad.bLeftTrigger = 0;
+			input_state->Gamepad.bRightTrigger = 0;
+		}
 
-		input_state->Gamepad.bLeftTrigger = 0;
-		input_state->Gamepad.bRightTrigger = 0;
+		return ERROR_SUCCESS;
 	}
 
-	return ERROR_SUCCESS;
+	return status;
 }
 
 bool initSocket() {
@@ -161,7 +186,7 @@ bool initSocket() {
 
 	Sleep(6000);
 
-	if (!ReadIPAddress()) return false;
+	if (!ReadConfig()) return false;
 
 	g_sock = NetDll_socket(static_cast<XNCALLER_TYPE>(XNCALLER_SYSAPP), AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (g_sock == INVALID_SOCKET) {
@@ -355,7 +380,7 @@ BOOL DllMain(HINSTANCE hModule, DWORD reason, void* pReserved)
             strcat(pluginPath, temp);
         }
 
-		strcat(pluginPath, "PluginData\\360ControllerToPC\\ip.txt");
+		strcat(pluginPath, "360ControllerToPC.ini");
 
         ExCreateThread(&hThread, 0, nullptr, nullptr, HookThread, nullptr, 2);
         break;
@@ -368,8 +393,10 @@ BOOL DllMain(HINSTANCE hModule, DWORD reason, void* pReserved)
 		pDataTable = nullptr;
 		memset(pluginPath, 0, sizeof(pluginPath));
 		memset(ip, 0, sizeof(ip));
-		port = 0;
-		gotIP = false;
+		port = 4000;
+		gotIp = false;
+		maxControllers = 4;
+		disableConsoleInput = true;
         break;
     }
 
