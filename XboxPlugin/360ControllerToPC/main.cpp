@@ -32,7 +32,7 @@ PLDR_DATA_TABLE_ENTRY pDataTable = nullptr;
 
 char pluginPath[MAX_PATH];
 
-char ip[64] = "127.0.0.1";
+char ip[64] = "192.168.1.1";
 int port = 4000;
 bool disableConsoleInput = true;
 int maxControllers = 4;
