@@ -1,4 +1,5 @@
 #include <iostream>
+#include <map>
 #include <xtl.h>
 #include <xkelib.h>
 #include <xhttp.h>
@@ -25,6 +26,11 @@
 
 Detour XamInputGetStateDetour;
 void* XamInputGetState = nullptr;
+
+Detour DrvXenonButtonPressedDetour;
+void* DrvXenonButtonPressed = nullptr;
+
+DWORD guideButtonPressed[4] = {0};
 
 SOCKET g_sock = INVALID_SOCKET;
 
@@ -69,10 +75,13 @@ bool sendPing()
 
     if (res == SOCKET_ERROR)
     {
-        DbgPrint("Ping failed, socket disconnected: %d\n", NetDll_WSAGetLastError());
+        //DbgPrint("Ping failed, socket disconnected: %d\n", NetDll_WSAGetLastError());
 		XamInputGetStateDetour.Remove();
+		XamInputGetState = nullptr;
+		DrvXenonButtonPressedDetour.Remove();
+		DrvXenonButtonPressed = nullptr;
         NetDll_closesocket(static_cast<XNCALLER_TYPE>(XNCALLER_SYSAPP), g_sock);
-        g_sock = INVALID_SOCKET;
+		g_sock = INVALID_SOCKET;
         return false;
     }
 
@@ -134,27 +143,44 @@ bool ReadConfig()
     return TRUE;
 }
 
-DWORD* XampInputRoutedToSysapp = nullptr;
+//DWORD* XampInputRoutedToSysapp = nullptr;
+
+DWORD lastPressTime = 0;
+
+bool DrvXenonButtonPressedHook(DWORD userIndex) {
+	DWORD realIndex = userIndex & 0xF;
+    guideButtonPressed[realIndex] = 0x0400;
+
+	if (!disableConsoleInput) {
+		DWORD now = GetTickCount();
+		if (now - lastPressTime >= 1000) {
+			lastPressTime = now;
+			XamInputSendXenonButtonPress(realIndex);
+		}
+	}
+	return ERROR_SUCCESS;
+}
 
 DWORD XamInputGetStateHook(DWORD userIndex, DWORD flags, XINPUT_STATE* input_state) {
 	DWORD status = XamInputGetStateDetour.GetOriginal<decltype(&XamInputGetStateHook)>()(userIndex, flags, input_state);
 
-	XINPUT_GAMEPAD gamepad = input_state->Gamepad;
-
-	X360Packet packet;
-	packet.userIndex = userIndex;
-	packet.wButtons = gamepad.wButtons;
-	packet.bLeftTrigger = gamepad.bLeftTrigger;
-	packet.bRightTrigger = gamepad.bRightTrigger;
-	packet.sThumbLX = gamepad.sThumbLX;
-	packet.sThumbLY = gamepad.sThumbLY;
-	packet.sThumbRX = gamepad.sThumbRX;
-	packet.sThumbRY = gamepad.sThumbRY;
-
 	if (g_sock != INVALID_SOCKET && userIndex < static_cast<unsigned int>(maxControllers)) {
-		if (userIndex < static_cast<unsigned int>(maxControllers)) {
-			NetDll_send(static_cast<XNCALLER_TYPE>(XNCALLER_SYSAPP), g_sock, reinterpret_cast<const char*>(&packet), sizeof(packet), 0);
-		}
+
+		XINPUT_GAMEPAD gamepad = input_state->Gamepad;
+
+		X360Packet packet;
+		packet.userIndex = userIndex;
+		gamepad.wButtons |= guideButtonPressed[userIndex];
+		packet.wButtons = gamepad.wButtons;
+		packet.bLeftTrigger = gamepad.bLeftTrigger;
+		packet.bRightTrigger = gamepad.bRightTrigger;
+		packet.sThumbLX = gamepad.sThumbLX;
+		packet.sThumbLY = gamepad.sThumbLY;
+		packet.sThumbRX = gamepad.sThumbRX;
+		packet.sThumbRY = gamepad.sThumbRY;
+
+		NetDll_send(static_cast<XNCALLER_TYPE>(XNCALLER_SYSAPP), g_sock, reinterpret_cast<const char*>(&packet), sizeof(packet), 0);
+		guideButtonPressed[userIndex] = 0x0000;
 
 		if (disableConsoleInput) {
 			input_state->Gamepad.wButtons = 0;
@@ -180,7 +206,7 @@ bool initSocket() {
 
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2,2), &wsaData) != 0) {
-        DbgPrint("WSAStartup failed\n");
+        //DbgPrint("WSAStartup failed\n");
         return 0;
     }
 
@@ -190,7 +216,7 @@ bool initSocket() {
 
 	g_sock = NetDll_socket(static_cast<XNCALLER_TYPE>(XNCALLER_SYSAPP), AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (g_sock == INVALID_SOCKET) {
-        DbgPrint("socket creation failed: %d\n", NetDll_WSAGetLastError());
+        //DbgPrint("socket creation failed: %d\n", NetDll_WSAGetLastError());
         NetDll_WSACleanup(static_cast<XNCALLER_TYPE>(XNCALLER_SYSAPP));
         return 0;
     }
@@ -205,12 +231,12 @@ bool initSocket() {
     target.sin_addr.s_addr = inet_addr(ip);
 
 	if (NetDll_connect(static_cast<XNCALLER_TYPE>(XNCALLER_SYSAPP), g_sock, (SOCKADDR*)&target, sizeof(target)) == SOCKET_ERROR) {
-        DbgPrint("connect failed: %d\n", NetDll_WSAGetLastError());
+        //DbgPrint("connect failed: %d\n", NetDll_WSAGetLastError());
         NetDll_closesocket(static_cast<XNCALLER_TYPE>(XNCALLER_SYSAPP), g_sock);
         NetDll_WSACleanup(static_cast<XNCALLER_TYPE>(XNCALLER_SYSAPP));
         return 0;
     }
-    DbgPrint("Connected to server\n");
+    //DbgPrint("Connected to server\n");
 
 	char wsHandshake[512];
 	sprintf(
@@ -230,22 +256,27 @@ bool initSocket() {
         NetDll_WSACleanup(static_cast<XNCALLER_TYPE>(XNCALLER_SYSAPP));
         return 0;
     }
-    DbgPrint("Handshake sent\n");
+    //DbgPrint("Handshake sent\n");
 
 	XamInputGetStateDetour = Detour(XamInputGetState, (void*)XamInputGetStateHook);
 	if (!XamInputGetStateDetour.Install()) {
-		DbgPrint("Failed to install hook\n");
+		//DbgPrint("Failed to install hook\n");
 	} else {
-		DbgPrint("Hook installed safely\n");
+		//DbgPrint("Hook installed safely\n");
 	}
+
+	DrvXenonButtonPressedDetour = Detour(DrvXenonButtonPressed, (void*)DrvXenonButtonPressedHook);
+	DrvXenonButtonPressedDetour.Install();
 
     return true;
 }
 
 bool initFunctionPointers() {
 	HANDLE xamHandle = GetModuleHandleA("xam.xex");
+	HANDLE kernelHandle = GetModuleHandleA("xboxkrnl.exe");
 
 	XexGetProcedureAddress(xamHandle, 401, &XamInputGetState);
+	XexGetProcedureAddress(kernelHandle, 632, &DrvXenonButtonPressed);
 
 	return true;
 }
@@ -254,11 +285,11 @@ void reconnect()
 {
     while (!initSocket())
     {
-        DbgPrint("Reconnect failed, retrying in 5 seconds...\n");
+        //DbgPrint("Reconnect failed, retrying in 5 seconds...\n");
         Sleep(5000);
     }
 
-    DbgPrint("Reconnected successfully!\n");
+    //DbgPrint("Reconnected successfully!\n");
 }
 
 DWORD WINAPI HeartbeatThread(void* param)
@@ -326,6 +357,11 @@ BOOL DllMain(HINSTANCE hModule, DWORD reason, void* pReserved)
     {
     case DLL_PROCESS_ATTACH:
     {
+		guideButtonPressed[0] = 0x0000;
+		guideButtonPressed[1] = 0x0000;
+		guideButtonPressed[2] = 0x0000;
+		guideButtonPressed[3] = 0x0000;
+
         HANDLE hThread;
 
 		LDR_DATA_TABLE_ENTRY *pDataTable = reinterpret_cast<LDR_DATA_TABLE_ENTRY *>(hModule);
@@ -337,8 +373,6 @@ BOOL DllMain(HINSTANCE hModule, DWORD reason, void* pReserved)
         {
             *(lastSlash + 1) = '\0';
         }
-
-		DbgPrint("PATH: %s", pluginPath);
 		
 		const char* oldPrefix = "\\Device\\Harddisk0\\Partition1\\";
         const char* newPrefix = "hdd:\\";
@@ -387,8 +421,14 @@ BOOL DllMain(HINSTANCE hModule, DWORD reason, void* pReserved)
     }
 
     case DLL_PROCESS_DETACH:
+		guideButtonPressed[0] = 0x0000;
+		guideButtonPressed[1] = 0x0000;
+		guideButtonPressed[2] = 0x0000;
+		guideButtonPressed[3] = 0x0000;
         XamInputGetStateDetour.Remove();
 		XamInputGetState = nullptr;
+		DrvXenonButtonPressedDetour.Remove();
+		DrvXenonButtonPressed = nullptr;
 		g_sock = INVALID_SOCKET;
 		pDataTable = nullptr;
 		memset(pluginPath, 0, sizeof(pluginPath));
