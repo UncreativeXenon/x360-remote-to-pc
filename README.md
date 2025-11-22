@@ -1,13 +1,9 @@
 # A lightweight Xbox 360 plugin that forwards controller input over the network to a PC.
 
----
-
 ## 📜 Features
 - Send controller input to a remote PC over TCP.
 - Enable/Disable console-side input when streaming.
 - Support for multiple controllers (2nd-4th controller may be buggy/slow).
-
----
 
 ## ⚙️ Usage
 
